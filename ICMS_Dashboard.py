@@ -2,11 +2,13 @@ import sys
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QMovie, QIcon, QColor
+from PyQt5.QtCore import Qt,QThread, pyqtSignal
+from PyQt5.QtGui import QPixmap, QMovie, QIcon,QImage
 
 class VideoThread(QThread):
+    frame_ready = pyqtSignal(np.ndarray)
     object_detected = pyqtSignal(list)
+    stop_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -20,7 +22,11 @@ class VideoThread(QThread):
         classNames = []
         with open('CocoModel/coco.names') as f:
             classNames = f.read().rstrip('\n').split('\n')
-        
+
+        filter = []
+        with open('CocoModel/filter.names') as f:
+            filter = f.read().rstrip('\n').split('\n')
+
         configpath = 'CocoModel/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt'
         weightpath = 'CocoModel/frozen_inference_graph.pb'
 
@@ -35,30 +41,34 @@ class VideoThread(QThread):
             classIds, conf, bbox = net.detect(frame, confThreshold=tres)
 
             detected_classes = set()
-            
+
             if len(classIds) != 0:
                 for Id, confidence, box in zip(classIds.flatten(), conf.flatten(), bbox):
                     class_name = classNames[Id - 1]
-                    detected_classes.add(class_name)
+                    if class_name not in filter:
+                        detected_classes.add(class_name)
             else:
                 detected_classes.add("No Objects Detected")
 
             detected_classes_list = list(detected_classes)
             self.object_detected.emit(detected_classes_list)
-            
-            # cv2.imshow('Screen', frame)
+
+            if ret:
+                self.frame_ready.emit(frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                self.stop_signal.emit()
                 break
 
         cap.release()
         cv2.destroyAllWindows()
-
+              
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
         
         self.video_thread = VideoThread()
+        self.camera_widget = None
 
         self.setGeometry(100, 100, 1920, 1080)
         self.setWindowTitle("CyICMS")
@@ -291,7 +301,16 @@ class MyWindow(QWidget):
         self.setLayout(main_layout)
 
         self.start_monitoring_button.clicked.connect(self.start_monitoring)
+        self.video_thread.frame_ready.connect(self.display_frame)
         self.video_thread.object_detected.connect(self.update_object_label)
+        self.video_thread.stop_signal.connect(self.stop_monitoring)
+
+    def display_frame(self, frame):
+        if self.camera_widget is None or self.camera_widget.isHidden():
+            self.camera_widget = CameraWidget(frame)
+            self.camera_widget.show()
+        else:
+            self.camera_widget.update_frame(frame)
 
     def update_object_label(self, object_names):
         red_objects = ['scissors', 'knife', 'baseball bat', 'fork']
@@ -315,7 +334,40 @@ class MyWindow(QWidget):
     def start_monitoring(self):
         self.start_monitoring_button.setEnabled(False)
         self.video_thread.start()
+        
+    def stop_monitoring(self):
+        if self.camera_widget:
+            self.camera_widget.close()
+        self.start_monitoring_button.setEnabled(True)
+        self.video_thread.stop_signal.emit()
+        self.video_thread.wait()
 
+class CameraWidget(QWidget):
+    closed = pyqtSignal()
+
+    def __init__(self, frame=None, parent=None):
+        super().__init__(parent)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        self.setLayout(layout)
+        if frame is not None:
+            self.update_frame(frame)
+
+    def update_frame(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        height, width, channel = frame.shape
+        bytes_per_line = 3 * width
+        q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_img)
+        self.image_label.setPixmap(pixmap)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Q:
+            self.close()
+            
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MyWindow()
