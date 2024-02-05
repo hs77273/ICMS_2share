@@ -3,7 +3,13 @@ import cv2
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
 from PyQt5.QtCore import Qt,QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QMovie, QIcon,QImage
+from PyQt5.QtGui import QPixmap, QMovie, QIcon
+from helper import *
+from detection_models import YoloObjectdetection
+
+CONFIG = Config()
+OBJECT = objectsFiles()
+YOLO_OBJECT = YoloObjectdetection()
 
 class VideoThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
@@ -14,43 +20,14 @@ class VideoThread(QThread):
         super().__init__()
 
     def run(self):
-        tres = 0.5
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(CONFIG.camera_source_1)
         cap.set(3, 640)
         cap.set(4, 480)
 
-        classNames = []
-        with open('CocoModel/coco.names') as f:
-            classNames = f.read().rstrip('\n').split('\n')
-
-        filter = []
-        with open('CocoModel/filter.names') as f:
-            filter = f.read().rstrip('\n').split('\n')
-
-        configpath = 'CocoModel/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt'
-        weightpath = 'CocoModel/frozen_inference_graph.pb'
-
-        net = cv2.dnn_DetectionModel(weightpath, configpath)
-        net.setInputSize(320, 320)
-        net.setInputScale(1.0/127.5)
-        net.setInputMean(127.5)
-        net.setInputSwapRB(True)
-
         while True:
             ret, frame = cap.read()
-            classIds, conf, bbox = net.detect(frame, confThreshold=tres)
 
-            detected_classes = set()
-
-            if len(classIds) != 0:
-                for Id, confidence, box in zip(classIds.flatten(), conf.flatten(), bbox):
-                    class_name = classNames[Id - 1]
-                    if class_name not in filter:
-                        detected_classes.add(class_name)
-            else:
-                detected_classes.add("No Objects Detected")
-
-            detected_classes_list = list(detected_classes)
+            detected_classes_list = YOLO_OBJECT.process_objects(frame)
             self.object_detected.emit(detected_classes_list)
 
             if ret:
@@ -106,7 +83,7 @@ class MyWindow(QWidget):
         left_layout.addItem(spacer_item_between)
 
         self.start_monitoring_button = QPushButton("Start Monitoring", self)
-        self.start_monitoring_button.setStyleSheet("background-color: #3498db; color: #ffffff; font-weight: bold;")
+        self.start_monitoring_button.setStyleSheet("background-color: #3498db; color: #ffffff; font-weight: bold; font-size: 20px;")
         self.start_monitoring_button.setFixedSize(260, 40)
         left_layout.addWidget(self.start_monitoring_button, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
 
@@ -151,67 +128,53 @@ class MyWindow(QWidget):
         heading_spacer = QSpacerItem(0, 60, QSizePolicy.Expanding, QSizePolicy.Minimum)
         behaviour_layout.addItem(heading_spacer)
 
-        Empty_pixmap = QPixmap('Icons/Empty.png')
-        Empty_pixmap = Empty_pixmap.scaled(120, 120, Qt.KeepAspectRatio)
+        self.Empty_pixmap = QPixmap('Icons/Empty.png')
+        self.Empty_pixmap = self.Empty_pixmap.scaled(120, 120, Qt.KeepAspectRatio)
         
-        Aggressive_pixmap = QPixmap('Icons/angry.png')
-        Aggressive_pixmap = Aggressive_pixmap.scaled(90, 90, Qt.KeepAspectRatio)
+        self.Aggressive_pixmap = QPixmap('Icons/angry.png')
+        self.Aggressive_pixmap = self.Aggressive_pixmap.scaled(90, 90, Qt.KeepAspectRatio)
         
-        Non_Aggressive_pixmap = QPixmap('Icons/smile.png')
-        Non_Aggressive_pixmap = Non_Aggressive_pixmap.scaled(90, 90, Qt.KeepAspectRatio)
+        self.Non_Aggressive_pixmap = QPixmap('Icons/smile.png')
+        self.Non_Aggressive_pixmap = self.Non_Aggressive_pixmap.scaled(90, 90, Qt.KeepAspectRatio)
+
+        def create_rectangle(label_text, pixmap, status_text, object_text):
+            rectangle = QWidget()
+            rectangle.setStyleSheet("background-color: #000000; border-radius: 5px;")
+            rectangle.setFixedSize(400, 200)
+            label = QLabel(label_text, rectangle)
+            label.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
+            image_label = QLabel(rectangle)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setPixmap(pixmap)
+            status_text_label = QLabel(status_text, rectangle)
+            status_text_label.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
+            status_text_label.setAlignment(Qt.AlignCenter)
+            object_text_label = QLabel(object_text, rectangle)
+            object_text_label.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
+            object_text_label.setAlignment(Qt.AlignCenter)
+            
+            rectangle.image_label = image_label
+            rectangle.status_text_label = status_text_label
+            rectangle.object_text_label = object_text_label
+            
+            layout = QVBoxLayout(rectangle)
+            layout.addWidget(label, alignment=Qt.AlignTop | Qt.AlignHCenter)
+            layout.addWidget(image_label, alignment=Qt.AlignCenter)
+            layout.addWidget(status_text_label, alignment=Qt.AlignCenter)
+            layout.addWidget(object_text_label, alignment=Qt.AlignCenter)
+            layout.addStretch(1)
+            rectangle.setLayout(layout)
+            
+            return rectangle
 
         horizontal_layout_A = QHBoxLayout()
         horizontal_layout_A.addSpacing(60)
 
-        rectangle_A2 = QLabel()
-        rectangle_A2.setStyleSheet("background-color: #000000; border-radius: 5px;")
-        rectangle_A2.setFixedSize(400, 200)
-        self.label_A2 = QLabel("SEAT: A2")
-        self.label_A2.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
-        self.image_label_A2 = QLabel()
-        self.image_label_A2.setAlignment(Qt.AlignCenter)
-        self.image_label_A2.setPixmap(Empty_pixmap)
-        self.status_text_A2 = QLabel("Status: Empty")
-        self.status_text_A2.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
-        self.status_text_A2.setAlignment(Qt.AlignCenter)
-        self.object_text_A2 = QLabel("")
-        self.object_text_A2.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
-        self.object_text_A2.setAlignment(Qt.AlignCenter)
+        self.rectangle_A2 = create_rectangle("SEAT: A2", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_A1 = create_rectangle("SEAT: A1", self.Empty_pixmap, "Status:Empty", "")
 
-        layout_A2 = QVBoxLayout()
-        layout_A2.addWidget(self.label_A2, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        layout_A2.addWidget(self.image_label_A2, alignment=Qt.AlignCenter)
-        layout_A2.addWidget(self.status_text_A2, alignment=Qt.AlignCenter)
-        layout_A2.addWidget(self.object_text_A2, alignment=Qt.AlignCenter)
-        layout_A2.addStretch(1)
-        rectangle_A2.setLayout(layout_A2)
-
-        horizontal_layout_A.addWidget(rectangle_A2)
-            
-        rectangle_A1 = QLabel()
-        rectangle_A1.setStyleSheet("background-color: #000000; border-radius: 5px;")
-        rectangle_A1.setFixedSize(400, 200)
-        self.label_A1 = QLabel("SEAT: A1")
-        self.label_A1.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
-        self.image_label_A1 = QLabel()
-        self.image_label_A1.setAlignment(Qt.AlignCenter)
-        self.image_label_A1.setPixmap(Empty_pixmap)
-        self.status_text_A1 = QLabel("Status: Empty")
-        self.status_text_A1.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
-        self.status_text_A1.setAlignment(Qt.AlignCenter)
-        self.object_text_A1 = QLabel("")
-        self.object_text_A1.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
-        self.object_text_A1.setAlignment(Qt.AlignCenter)
-
-        layout_A1 = QVBoxLayout()
-        layout_A1.addWidget(self.label_A1, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        layout_A1.addWidget(self.image_label_A1, alignment=Qt.AlignCenter)
-        layout_A1.addWidget(self.status_text_A1, alignment=Qt.AlignCenter)
-        layout_A1.addWidget(self.object_text_A1, alignment=Qt.AlignCenter)
-        layout_A1.addStretch(1)
-        rectangle_A1.setLayout(layout_A1)
-
-        horizontal_layout_A.addWidget(rectangle_A1)
+        horizontal_layout_A.addWidget(self.rectangle_A2)
+        horizontal_layout_A.addWidget(self.rectangle_A1)
 
         behaviour_layout.addLayout(horizontal_layout_A)
         layout_spacer = QSpacerItem(0, 100, QSizePolicy.Expanding, QSizePolicy.Minimum)
@@ -220,55 +183,11 @@ class MyWindow(QWidget):
         horizontal_layout_B = QHBoxLayout()
         horizontal_layout_B.addSpacing(60)
 
-        rectangle_B2 = QLabel()
-        rectangle_B2.setStyleSheet("background-color: #000000; border-radius: 5px;")
-        rectangle_B2.setFixedSize(400, 200)
-        self.label_B2 = QLabel("SEAT: B2")
-        self.label_B2.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
-        self.image_label_B2 = QLabel()
-        self.image_label_B2.setAlignment(Qt.AlignCenter)
-        self.image_label_B2.setPixmap(Empty_pixmap)
-        self.status_text_B2 = QLabel("Status: Empty")
-        self.status_text_B2.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
-        self.status_text_B2.setAlignment(Qt.AlignCenter)
-        self.object_text_B2 = QLabel("")
-        self.object_text_B2.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
-        self.object_text_B2.setAlignment(Qt.AlignCenter)
+        self.rectangle_B2 = create_rectangle("SEAT: B2", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_B1 = create_rectangle("SEAT: B1", self.Empty_pixmap, "Status:Empty", "")
 
-        layout_B2 = QVBoxLayout()
-        layout_B2.addWidget(self.label_B2, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        layout_B2.addWidget(self.image_label_B2, alignment=Qt.AlignCenter)
-        layout_B2.addWidget(self.status_text_B2, alignment=Qt.AlignCenter)
-        layout_B2.addWidget(self.object_text_B2, alignment=Qt.AlignCenter)
-        layout_B2.addStretch(1)
-        rectangle_B2.setLayout(layout_B2)
-
-        horizontal_layout_B.addWidget(rectangle_B2)
-
-        rectangle_B1 = QLabel()
-        rectangle_B1.setStyleSheet("background-color: #000000; border-radius: 5px;")
-        rectangle_B1.setFixedSize(400, 200)
-        self.label_B1 = QLabel("SEAT: B1")
-        self.label_B1.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
-        self.image_label_B1 = QLabel()
-        self.image_label_B1.setAlignment(Qt.AlignCenter)
-        self.image_label_B1.setPixmap(Empty_pixmap)
-        self.status_text_B1 = QLabel("Status: Empty")
-        self.status_text_B1.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
-        self.status_text_B1.setAlignment(Qt.AlignCenter)
-        self.object_text_B1 = QLabel("")
-        self.object_text_B1.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
-        self.object_text_B1.setAlignment(Qt.AlignCenter)
-
-        layout_B1 = QVBoxLayout()
-        layout_B1.addWidget(self.label_B1, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        layout_B1.addWidget(self.image_label_B1, alignment=Qt.AlignCenter)
-        layout_B1.addWidget(self.status_text_B1, alignment=Qt.AlignCenter)
-        layout_B1.addWidget(self.object_text_B1, alignment=Qt.AlignCenter)
-        layout_B1.addStretch(1)
-        rectangle_B1.setLayout(layout_B1)
-
-        horizontal_layout_B.addWidget(rectangle_B1)
+        horizontal_layout_B.addWidget(self.rectangle_B2)
+        horizontal_layout_B.addWidget(self.rectangle_B1)
 
         behaviour_layout.addLayout(horizontal_layout_B)
         
@@ -313,11 +232,10 @@ class MyWindow(QWidget):
             self.camera_widget.update_frame(frame)
 
     def update_object_label(self, object_names):
-        red_objects = ['scissors', 'knife', 'baseball bat', 'fork']
         if isinstance(object_names, list):
             colors = []
             for obj in object_names:
-                if obj in red_objects:
+                if obj in OBJECT.offensive_objects:
                     colors.append("red")
                 else:
                     colors.append("white")
@@ -326,7 +244,7 @@ class MyWindow(QWidget):
             object_names_str = ", ".join(colored_object_names)
             self.object_msg.setText(object_names_str)
         else:
-            if object_names in red_objects:
+            if object_names in OBJECT.offensive_objects:
                 self.object_msg.setText(f"<font color='red'>{object_names}</font>")
             else:
                 self.object_msg.setText(str(object_names))
@@ -341,32 +259,6 @@ class MyWindow(QWidget):
         self.start_monitoring_button.setEnabled(True)
         self.video_thread.stop_signal.emit()
         self.video_thread.wait()
-
-class CameraWidget(QWidget):
-    closed = pyqtSignal()
-
-    def __init__(self, frame=None, parent=None):
-        super().__init__(parent)
-
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignCenter)
-        layout = QVBoxLayout()
-        layout.addWidget(self.image_label)
-        self.setLayout(layout)
-        if frame is not None:
-            self.update_frame(frame)
-
-    def update_frame(self, frame):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        height, width, channel = frame.shape
-        bytes_per_line = 3 * width
-        q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(q_img)
-        self.image_label.setPixmap(pixmap)
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Q:
-            self.close()
             
 if __name__ == "__main__":
     app = QApplication(sys.argv)
