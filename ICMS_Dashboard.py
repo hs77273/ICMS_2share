@@ -112,7 +112,7 @@ class MyWindow(QWidget):
         text_label.setStyleSheet("color: #ffffff; font-size: 32px; font-weight: bold;")
         right_layout.addWidget(text_label, alignment=Qt.AlignTop | Qt.AlignRight)
 
-        spacer_item = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        spacer_item = QSpacerItem(20, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
         right_layout.addItem(spacer_item)
 
         behaviour_rect_widget = QWidget(self)
