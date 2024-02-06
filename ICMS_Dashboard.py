@@ -201,6 +201,9 @@ class MyWindow(QWidget):
 
         self.object_msg = QLabel("No Objects Detected")
         self.object_msg.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: bold;")
+        self.object_msg.setWordWrap(True)
+        self.object_msg.setAlignment(Qt.AlignCenter)
+        self.object_msg.setFixedWidth(650)
 
         msg_layout = QVBoxLayout()
         msg_layout.addWidget(self.heading, alignment=Qt.AlignTop | Qt.AlignHCenter)
@@ -242,13 +245,14 @@ class MyWindow(QWidget):
             
             colored_object_names = [f"<font color='{color}'>{obj}</font>" for obj, color in zip(object_names, colors)]
             object_names_str = ", ".join(colored_object_names)
-            self.object_msg.setText(object_names_str)
+            self.object_msg.setText(object_names_str if object_names_str != "" else "No Objects Detected")
+            
         else:
             if object_names in OBJECT.offensive_objects:
                 self.object_msg.setText(f"<font color='red'>{object_names}</font>")
             else:
-                self.object_msg.setText(str(object_names))
-            
+                self.object_msg.setText(str(object_names) if str(object_names) != "" else "No Objects Detected")
+
     def start_monitoring(self):
         self.start_monitoring_button.setEnabled(False)
         self.video_thread.start()

@@ -33,12 +33,14 @@ class objectsFiles:
             
         configpath = 'CocoModel/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt'
         weightpath = 'CocoModel/frozen_inference_graph.pb'
+        yolov5path = 'CocoModel/yolov5s.pt'
 
         self.classNames = classNames
         self.filter = filter
         self.offensive_objects = offensive_objects
         self.configpath = configpath
         self.weightpath = weightpath
+        self.yolov5path = yolov5path
         
 class CameraWidget(QWidget):
     closed = pyqtSignal()

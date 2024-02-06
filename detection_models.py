@@ -2,6 +2,8 @@ import cv2
 from helper import *
 import numpy as np
 from keras.models import load_model
+import torch
+from pathlib import Path
 
 OBJECT = objectsFiles()
 CONFIG = Config()
@@ -10,28 +12,24 @@ behaviour_class = ['Aggresive', 'Non-Aggresive', 'NoFace']
 
 class YoloObjectdetection:
     def __init__(self):
-        self.tres = 0.5
-        self.net = cv2.dnn_DetectionModel(OBJECT.weightpath, OBJECT.configpath)
-        self.net.setInputSize(320, 320)
-        self.net.setInputScale(1.0/127.5)
-        self.net.setInputMean(127.5)
-        self.net.setInputSwapRB(True)
-    
-    def process_objects(self, frame):
-        classIds, conf, bbox = self.net.detect(frame, confThreshold=self.tres)
-        detected_classes = set()
+        self.model_path = Path(OBJECT.yolov5path)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=self.model_path).to(self.device)
+        self.model.eval()
 
-        if len(classIds) != 0:
-            for Id, confidence, box in zip(classIds.flatten(), conf.flatten(), bbox):
-                class_name = OBJECT.classNames[Id - 1]
-                if class_name not in OBJECT.filter:
-                    detected_classes.add(class_name)
-        else:
-            detected_classes.add("No Objects Detected")
+    def process_objects(self, frame):
+        results = self.model(frame)
+
+        detected_classes = set()
+        for obj in results.xyxy[0]:
+            class_id = int(obj[5])
+            class_name = self.model.names[class_id]
+            if class_name not in OBJECT.filter:
+                detected_classes.add(class_name)
 
         detected_classes_list = list(detected_classes)
         return detected_classes_list
-    
+
 class BehaviourDetection:
     def __init__(self,frame):
         self.frame = frame
