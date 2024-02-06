@@ -16,6 +16,8 @@ class YoloObjectdetection:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = torch.hub.load("ultralytics/yolov5", "custom", path=self.model_path).to(self.device)
         self.model.eval()
+        self.smoothing_window_size = 15
+        self.detected_classes_history = []
 
     def process_objects(self, frame):
         results = self.model(frame)
@@ -28,8 +30,24 @@ class YoloObjectdetection:
                 detected_classes.add(class_name)
 
         detected_classes_list = list(detected_classes)
-        return detected_classes_list
+        self.update_history(detected_classes_list)
+        smoothed_classes = self.smooth_detection()
+        return smoothed_classes
 
+    def update_history(self, detected_classes_list):
+        self.detected_classes_history.append(detected_classes_list)
+        if len(self.detected_classes_history) > self.smoothing_window_size:
+            self.detected_classes_history.pop(0)
+
+    def smooth_detection(self):
+        if not self.detected_classes_history:
+            return []
+        smoothed_classes = set()
+        for classes_list in self.detected_classes_history:
+            for class_name in classes_list:
+                smoothed_classes.add(class_name)
+        return list(smoothed_classes)
+    
 class BehaviourDetection:
     def __init__(self,frame):
         self.frame = frame
