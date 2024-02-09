@@ -15,6 +15,7 @@ class Config:
 
         self.camera_source_1 = data["CAMERA"]["FIRST_CAMERA_INDEX"]
         self.camera_source_2 = data["CAMERA"]["SECOND_CAMERA_INDEX"]
+        self.camera_source_3 = data["CAMERA"]["THIRD_CAMERA_INDEX"]
         self.seat_coordinates = seats_coordinates(data["SEAT_COORDINATES"], data["FRAME_SHAPE"])
 
 class objectsFiles:
@@ -31,15 +32,11 @@ class objectsFiles:
         with open('CocoModel/offensive.names') as f:
             offensive_objects = f.read().rstrip('\n').split('\n')
             
-        configpath = 'CocoModel/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt'
-        weightpath = 'CocoModel/frozen_inference_graph.pb'
         yolov5path = 'CocoModel/yolov5s.pt'
 
         self.classNames = classNames
         self.filter = filter
         self.offensive_objects = offensive_objects
-        self.configpath = configpath
-        self.weightpath = weightpath
         self.yolov5path = yolov5path
         
 class CameraWidget(QWidget):

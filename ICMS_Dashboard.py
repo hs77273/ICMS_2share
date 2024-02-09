@@ -5,40 +5,62 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLay
 from PyQt5.QtCore import Qt,QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QMovie, QIcon
 from helper import *
-from detection_models import YoloObjectdetection
+from detection_models import YoloObjectdetection,BehaviourDetection,SeatObjects
 
 CONFIG = Config()
 OBJECT = objectsFiles()
 YOLO_OBJECT = YoloObjectdetection()
+YOLO_GESTURE = BehaviourDetection()
+SEAT_OBJ = SeatObjects()
 
 class VideoThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
     object_detected = pyqtSignal(list)
+    behaviour_detected = pyqtSignal(dict)
+    seatobjects_detected = pyqtSignal(dict)
     stop_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
 
     def run(self):
-        cap = cv2.VideoCapture(CONFIG.camera_source_1)
-        cap.set(3, 640)
-        cap.set(4, 480)
+        try:
+            cap1 = cv2.VideoCapture(CONFIG.camera_source_1)
+            cap2 = cv2.VideoCapture(CONFIG.camera_source_2)
+            cap3 = cv2.VideoCapture(CONFIG.camera_source_3)
 
-        while True:
-            ret, frame = cap.read()
+            while True:
+                ret1, frame1 = cap1.read()
+                ret2, frame2 = cap2.read()
+                ret3, frame3 = cap3.read()
+                
+                frame1 = cv2.resize(frame1, (500, 480))
+                cabin_frame = cv2.hconcat([frame2, frame3])
+                cabin_frame = cv2.resize(cabin_frame, (1280, 480))
 
-            detected_classes_list = YOLO_OBJECT.process_objects(frame)
-            self.object_detected.emit(detected_classes_list)
+                detected_classes_list = YOLO_OBJECT.process_objects(frame1)
+                behaviour_dict = YOLO_GESTURE.process_behaviour(cabin_frame)
+                seatobj_dict = SEAT_OBJ.process_seatobjects(cabin_frame)
+                self.object_detected.emit(detected_classes_list)
+                self.behaviour_detected.emit(behaviour_dict)
+                self.seatobjects_detected.emit(seatobj_dict)
+                
+                cabin_frame = draw_seats(cabin_frame,CONFIG.seat_coordinates)
+                all_frame = cv2.hconcat([cabin_frame, frame1])
 
-            if ret:
-                self.frame_ready.emit(frame)
+                if ret1 and ret2 and ret3:
+                    self.frame_ready.emit(all_frame)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                self.stop_signal.emit()
-                break
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    self.stop_signal.emit()
+                    break
 
-        cap.release()
-        cv2.destroyAllWindows()
+            cap1.release()
+            cap2.release()
+            cap3.release()
+            cv2.destroyAllWindows()
+        except Exception as e:
+            print(e)
               
 class MyWindow(QWidget):
     def __init__(self):
@@ -140,7 +162,7 @@ class MyWindow(QWidget):
         def create_rectangle(label_text, pixmap, status_text, object_text):
             rectangle = QWidget()
             rectangle.setStyleSheet("background-color: #000000; border-radius: 5px;")
-            rectangle.setFixedSize(400, 200)
+            rectangle.setFixedSize(400, 220)
             label = QLabel(label_text, rectangle)
             label.setStyleSheet("color: #00C8F0; font-size: 18px; font-weight: bold;")
             image_label = QLabel(rectangle)
@@ -150,7 +172,7 @@ class MyWindow(QWidget):
             status_text_label.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
             status_text_label.setAlignment(Qt.AlignCenter)
             object_text_label = QLabel(object_text, rectangle)
-            object_text_label.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
+            object_text_label.setStyleSheet("color: white; font-weight: bold; font-size: 20px;")
             object_text_label.setAlignment(Qt.AlignCenter)
             
             rectangle.image_label = image_label
@@ -170,8 +192,8 @@ class MyWindow(QWidget):
         horizontal_layout_A = QHBoxLayout()
         horizontal_layout_A.addSpacing(60)
 
-        self.rectangle_A2 = create_rectangle("SEAT: A2", self.Empty_pixmap, "Status:Empty", "")
-        self.rectangle_A1 = create_rectangle("SEAT: A1", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_A2 = create_rectangle("SEAT: A2", self.Empty_pixmap, "Status:Empty", "No Objects")
+        self.rectangle_A1 = create_rectangle("SEAT: A1", self.Empty_pixmap, "Status:Empty", "No Objects")
 
         horizontal_layout_A.addWidget(self.rectangle_A2)
         horizontal_layout_A.addWidget(self.rectangle_A1)
@@ -183,8 +205,8 @@ class MyWindow(QWidget):
         horizontal_layout_B = QHBoxLayout()
         horizontal_layout_B.addSpacing(60)
 
-        self.rectangle_B2 = create_rectangle("SEAT: B2", self.Empty_pixmap, "Status:Empty", "")
-        self.rectangle_B1 = create_rectangle("SEAT: B1", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_B2 = create_rectangle("SEAT: B2", self.Empty_pixmap, "Status:Empty", "No Objects")
+        self.rectangle_B1 = create_rectangle("SEAT: B1", self.Empty_pixmap, "Status:Empty", "No Objects")
 
         horizontal_layout_B.addWidget(self.rectangle_B2)
         horizontal_layout_B.addWidget(self.rectangle_B1)
@@ -192,6 +214,8 @@ class MyWindow(QWidget):
         behaviour_layout.addLayout(horizontal_layout_B)
         
         behaviour_layout.addSpacing(60)
+        
+        self.rectangles_dict = {'A1': self.rectangle_A1, 'A2': self.rectangle_A2, 'B1': self.rectangle_B1, 'B2': self.rectangle_B2}
 
         self.msg_rect = QLabel()
         self.msg_rect.setStyleSheet("background-color: #000000; border-radius: 5px;")
@@ -210,7 +234,7 @@ class MyWindow(QWidget):
         msg_layout.addWidget(self.object_msg, alignment=Qt.AlignTop | Qt.AlignCenter)
         self.msg_rect.setLayout(msg_layout)
         behaviour_layout.addWidget(self.msg_rect, alignment=Qt.AlignHCenter)
-        behaviour_layout.addSpacing(40)
+        behaviour_layout.addSpacing(30)
 
         right_layout.addWidget(behaviour_rect_widget, alignment=Qt.AlignTop | Qt.AlignRight)
         right_widget = QWidget()
@@ -225,6 +249,8 @@ class MyWindow(QWidget):
         self.start_monitoring_button.clicked.connect(self.start_monitoring)
         self.video_thread.frame_ready.connect(self.display_frame)
         self.video_thread.object_detected.connect(self.update_object_label)
+        self.video_thread.behaviour_detected.connect(self.update_behaviour_status)
+        self.video_thread.seatobjects_detected.connect(self.update_seat_object)
         self.video_thread.stop_signal.connect(self.stop_monitoring)
 
     def display_frame(self, frame):
@@ -252,6 +278,34 @@ class MyWindow(QWidget):
                 self.object_msg.setText(f"<font color='red'>{object_names}</font>")
             else:
                 self.object_msg.setText(str(object_names) if str(object_names) != "" else "No Objects Detected")
+                
+    def update_behaviour_status(self, behaviour_dict):
+        for key, rectangle in self.rectangles_dict.items():
+            rectangle.status_text_label.setText(behaviour_dict[key])
+            if behaviour_dict[key] == 'Aggressive':
+                rectangle.status_text_label.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
+                rectangle.image_label.setPixmap(self.Aggressive_pixmap)
+            elif behaviour_dict[key] == 'Non-Aggressive':
+                rectangle.status_text_label.setStyleSheet("color: Green; font-weight: bold; font-size: 20px;")
+                rectangle.image_label.setPixmap(self.Non_Aggressive_pixmap)
+            else:
+                rectangle.status_text_label.setStyleSheet("color: White; font-weight: bold; font-size: 20px;")
+                rectangle.image_label.setPixmap(self.Empty_pixmap)
+                
+    def update_seat_object(self, seatobjects_dict):
+        for key, rectangle in self.rectangles_dict.items():
+            offensive_object_detected = False
+            for obj in seatobjects_dict.get(key, []):
+                if obj in OBJECT.offensive_objects:
+                    offensive_object_detected = True
+            
+            if offensive_object_detected:
+                rectangle.object_text_label.setText("Offensive object detected")
+                rectangle.object_text_label.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
+            else:
+                rectangle.object_text_label.setText("No Offensive object detected")
+                rectangle.object_text_label.setStyleSheet("color: Green; font-weight: bold; font-size: 20px;")
+
 
     def start_monitoring(self):
         self.start_monitoring_button.setEnabled(False)
