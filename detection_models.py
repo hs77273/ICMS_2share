@@ -10,6 +10,11 @@ CONFIG = Config()
 behaviour_model = load_model("BehaviourModel/behaviour.h5", compile=False)
 behaviour_class = ['Non-Aggressive', 'Aggressive', 'Empty']
 
+model_path = Path(OBJECT.yolov5path)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+obj_model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path).to(device)
+obj_model.eval()
+
 class GunDetection:
     def __init__(self):
         self.smoothing_window_size = 15
@@ -44,21 +49,17 @@ class GunDetection:
 
 class YoloObjectdetection:
     def __init__(self):
-        self.model_path = Path(OBJECT.yolov5path)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=self.model_path).to(self.device)
-        self.model.eval()
         self.smoothing_window_size = 15
         self.detected_classes_history = []
         self.gun_detector = GunDetection()
         
     def process_objects(self, frame):
-        results = self.model(frame)
+        results = obj_model(frame)
 
         detected_classes = set()
         for obj in results.xyxy[0]:
             class_id = int(obj[5])
-            class_name = self.model.names[class_id]
+            class_name = obj_model.names[class_id]
             if class_name not in OBJECT.filter:
                 detected_classes.add(class_name)
             gun = self.gun_detector.process_gun_detection(frame)
@@ -138,22 +139,18 @@ class BehaviourDetection:
     
 class SeatObjects:
     def __init__(self):
-        self.model_path = Path(OBJECT.yolov5path)
         self.seat_coordinate = CONFIG.seat_coordinates
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=self.model_path).to(self.device)
-        self.model.eval()
         self.smoothing_window_size = 15
         self.seat_obj_history = {}
         self.gun_detector = GunDetection()
 
     def process_objects(self, seatframe):
-        results = self.model(seatframe)
+        results = obj_model(seatframe)
 
         detected_classes = set()
         for obj in results.xyxy[0]:
             class_id = int(obj[5])
-            class_name = self.model.names[class_id]
+            class_name = obj_model.names[class_id]
             if class_name not in OBJECT.filter:
                 detected_classes.add(class_name)
             gun = self.gun_detector.process_gun_detection(seatframe)
