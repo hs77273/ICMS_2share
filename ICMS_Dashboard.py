@@ -5,68 +5,93 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLay
 from PyQt5.QtCore import Qt,QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QMovie, QIcon
 from helper import *
-from detection_models import YoloObjectdetection,BehaviourDetection,SeatObjects
+from detection_models import YoloObjectdetection,BehaviourDetection
 
 CONFIG = Config()
 OBJECT = objectsFiles()
 YOLO_OBJECT = YoloObjectdetection()
 YOLO_GESTURE = BehaviourDetection()
-SEAT_OBJ = SeatObjects()
 
-class VideoThread(QThread):
+class BoardThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
     object_detected = pyqtSignal(list)
-    behaviour_detected = pyqtSignal(dict)
-    seatobjects_detected = pyqtSignal(dict)
-    stop_signal = pyqtSignal()
-
+    
     def __init__(self):
         super().__init__()
+        self.stopped = False
 
     def run(self):
         try:
             cap1 = cv2.VideoCapture(CONFIG.camera_source_1)
+        
+            while not self.stopped:
+                ret1, frame1 = cap1.read()
+            
+                if not ret1:
+                    break
+
+                frame1 = cv2.resize(frame1, (500, 480))
+                
+                detected_classes_list = YOLO_OBJECT.process_objects(frame1)
+                self.object_detected.emit(detected_classes_list)
+                
+                self.frame_ready.emit(frame1)
+
+        except Exception as e:
+            print(e)
+            
+        finally:
+            cap1.release()
+            cv2.destroyAllWindows()
+
+    def stop(self):
+        self.stopped = True
+
+class CabinThread(QThread):
+    frame_ready = pyqtSignal(np.ndarray)
+    behaviour_detected = pyqtSignal(dict)
+
+    def __init__(self):
+        super().__init__()
+        self.stopped = False
+
+    def run(self):
+        try:
             cap2 = cv2.VideoCapture(CONFIG.camera_source_2)
             cap3 = cv2.VideoCapture(CONFIG.camera_source_3)
 
-            while True:
-                ret1, frame1 = cap1.read()
+            while not self.stopped:
                 ret2, frame2 = cap2.read()
                 ret3, frame3 = cap3.read()
-                
-                frame1 = cv2.resize(frame1, (500, 480))
-                cabin_frame = cv2.hconcat([frame2, frame3])
-                cabin_frame = cv2.resize(cabin_frame, (1280, 480))
 
-                detected_classes_list = YOLO_OBJECT.process_objects(frame1)
-                behaviour_dict = YOLO_GESTURE.process_behaviour(cabin_frame)
-                seatobj_dict = SEAT_OBJ.process_seatobjects(cabin_frame)
-                self.object_detected.emit(detected_classes_list)
-                self.behaviour_detected.emit(behaviour_dict)
-                self.seatobjects_detected.emit(seatobj_dict)
-                
-                cabin_frame = draw_seats(cabin_frame,CONFIG.seat_coordinates)
-                all_frame = cv2.hconcat([cabin_frame, frame1])
-
-                if ret1 and ret2 and ret3:
-                    self.frame_ready.emit(all_frame)
-
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    self.stop_signal.emit()
+                if not ret2 or not ret3:
                     break
 
-            cap1.release()
-            cap2.release()
-            cap3.release()
-            cv2.destroyAllWindows()
+                cabin_frame = cv2.hconcat([frame2, frame3])
+                cabin_frame = cv2.resize(cabin_frame, (1280, 480))
+                
+                behaviour_dict = YOLO_GESTURE.process_behaviour(cabin_frame)
+                self.behaviour_detected.emit(behaviour_dict)
+
+                frame2 = draw_seats(cabin_frame, CONFIG.seat_coordinates)
+                self.frame_ready.emit(cabin_frame)
+
         except Exception as e:
             print(e)
+            
+        finally:
+            cap2.release()
+            cv2.destroyAllWindows()
+
+    def stop(self):
+        self.stopped = True
               
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
         
-        self.video_thread = VideoThread()
+        self.cabin_thread = CabinThread()
+        self.board_thread = BoardThread()
         self.camera_widget = None
 
         self.setGeometry(100, 100, 1920, 1080)
@@ -104,10 +129,17 @@ class MyWindow(QWidget):
         spacer_item_between = QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed)
         left_layout.addItem(spacer_item_between)
 
-        self.start_monitoring_button = QPushButton("Start Monitoring", self)
-        self.start_monitoring_button.setStyleSheet("background-color: #3498db; color: #ffffff; font-weight: bold; font-size: 20px;")
-        self.start_monitoring_button.setFixedSize(260, 40)
-        left_layout.addWidget(self.start_monitoring_button, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
+        self.boardingmonitoring_button = QPushButton("Boarding Monitoring", self)
+        self.boardingmonitoring_button.setStyleSheet("background-color: #3498db; color: #ffffff; font-weight: bold; font-size: 20px;")
+        self.boardingmonitoring_button.setFixedSize(260, 40)
+        left_layout.addWidget(self.boardingmonitoring_button, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
+        
+        left_layout.addSpacing(20)
+        
+        self.cabinmonitoring_button = QPushButton("Cabin Monitoring", self)
+        self.cabinmonitoring_button.setStyleSheet("background-color: #3498db; color: #ffffff; font-weight: bold; font-size: 20px;")
+        self.cabinmonitoring_button.setFixedSize(260, 40)
+        left_layout.addWidget(self.cabinmonitoring_button, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
 
         spacer_item_bottom = QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding)
         left_layout.addItem(spacer_item_bottom)
@@ -192,8 +224,8 @@ class MyWindow(QWidget):
         horizontal_layout_A = QHBoxLayout()
         horizontal_layout_A.addSpacing(60)
 
-        self.rectangle_A2 = create_rectangle("SEAT: A2", self.Empty_pixmap, "Status:Empty", "No Objects")
-        self.rectangle_A1 = create_rectangle("SEAT: A1", self.Empty_pixmap, "Status:Empty", "No Objects")
+        self.rectangle_A2 = create_rectangle("SEAT: A2", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_A1 = create_rectangle("SEAT: A1", self.Empty_pixmap, "Status:Empty", "")
 
         horizontal_layout_A.addWidget(self.rectangle_A2)
         horizontal_layout_A.addWidget(self.rectangle_A1)
@@ -205,8 +237,8 @@ class MyWindow(QWidget):
         horizontal_layout_B = QHBoxLayout()
         horizontal_layout_B.addSpacing(60)
 
-        self.rectangle_B2 = create_rectangle("SEAT: B2", self.Empty_pixmap, "Status:Empty", "No Objects")
-        self.rectangle_B1 = create_rectangle("SEAT: B1", self.Empty_pixmap, "Status:Empty", "No Objects")
+        self.rectangle_B2 = create_rectangle("SEAT: B2", self.Empty_pixmap, "Status:Empty", "")
+        self.rectangle_B1 = create_rectangle("SEAT: B1", self.Empty_pixmap, "Status:Empty", "")
 
         horizontal_layout_B.addWidget(self.rectangle_B2)
         horizontal_layout_B.addWidget(self.rectangle_B1)
@@ -246,16 +278,27 @@ class MyWindow(QWidget):
 
         self.setLayout(main_layout)
 
-        self.start_monitoring_button.clicked.connect(self.start_monitoring)
-        self.video_thread.frame_ready.connect(self.display_frame)
-        self.video_thread.object_detected.connect(self.update_object_label)
-        self.video_thread.behaviour_detected.connect(self.update_behaviour_status)
-        self.video_thread.seatobjects_detected.connect(self.update_seat_object)
-        self.video_thread.stop_signal.connect(self.stop_monitoring)
-
+        self.cabinmonitoring_button.clicked.connect(self.start_cabinmonitoring)
+        self.cabin_thread.frame_ready.connect(self.display_frame)
+        self.cabin_thread.behaviour_detected.connect(self.update_behaviour_status)
+        
+        self.boardingmonitoring_button.clicked.connect(self.start_boardmonitoring)
+        self.board_thread.frame_ready.connect(self.display_boardframe)
+        self.board_thread.object_detected.connect(self.update_object_label)
+        
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Q:
+            self.stop_cabinmonitoring()
+            self.stop_boardmonitoring()
+        elif event.key() == Qt.Key_Space:
+            self.start_boardmonitoring()
+        elif event.key() == Qt.Key_Shift:
+            self.start_cabinmonitoring()
+            
     def display_frame(self, frame):
         if self.camera_widget is None or self.camera_widget.isHidden():
             self.camera_widget = CameraWidget(frame)
+            self.camera_widget.closed.connect(self.stop_cabinmonitoring)
             self.camera_widget.show()
         else:
             self.camera_widget.update_frame(frame)
@@ -292,31 +335,41 @@ class MyWindow(QWidget):
                 rectangle.status_text_label.setStyleSheet("color: White; font-weight: bold; font-size: 20px;")
                 rectangle.image_label.setPixmap(self.Empty_pixmap)
                 
-    def update_seat_object(self, seatobjects_dict):
-        for key, rectangle in self.rectangles_dict.items():
-            offensive_object_detected = False
-            for obj in seatobjects_dict.get(key, []):
-                if obj in OBJECT.offensive_objects:
-                    offensive_object_detected = True
-            
-            if offensive_object_detected:
-                rectangle.object_text_label.setText("Offensive object detected")
-                rectangle.object_text_label.setStyleSheet("color: Red; font-weight: bold; font-size: 20px;")
-            else:
-                rectangle.object_text_label.setText("No Offensive object detected")
-                rectangle.object_text_label.setStyleSheet("color: Green; font-weight: bold; font-size: 20px;")
-
-
-    def start_monitoring(self):
-        self.start_monitoring_button.setEnabled(False)
-        self.video_thread.start()
+    def start_cabinmonitoring(self):
+        self.cabinmonitoring_button.setEnabled(False)
+        self.cabin_thread.start()
         
-    def stop_monitoring(self):
+    def stop_cabinmonitoring(self):
+        for key, rectangle in self.rectangles_dict.items():
+            rectangle.status_text_label.setText("Empty")
+            rectangle.status_text_label.setStyleSheet("color: White; font-weight: bold; font-size: 20px;")
+            rectangle.image_label.setPixmap(self.Empty_pixmap)
+            
+        if self.cabin_thread.isRunning():
+            self.cabin_thread.stopped = True
+            self.cabin_thread.wait()
         if self.camera_widget:
             self.camera_widget.close()
-        self.start_monitoring_button.setEnabled(True)
-        self.video_thread.stop_signal.emit()
-        self.video_thread.wait()
+            
+    def display_boardframe(self, frame):
+        if self.camera_widget is None or self.camera_widget.isHidden():
+            self.camera_widget = CameraWidget(frame)
+            self.camera_widget.closed.connect(self.stop_boardmonitoring)
+            self.camera_widget.show()
+        else:
+            self.camera_widget.update_frame(frame)
+            
+    def start_boardmonitoring(self):
+        self.boardingmonitoring_button.setEnabled(False)
+        self.board_thread.start()
+        
+    def stop_boardmonitoring(self):
+        self.object_msg.setText("No Objects Detected")
+        if self.board_thread.isRunning():
+            self.board_thread.stopped = True
+            self.board_thread.wait()
+        if self.camera_widget:
+            self.camera_widget.close()
             
 if __name__ == "__main__":
     app = QApplication(sys.argv)

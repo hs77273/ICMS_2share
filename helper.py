@@ -8,7 +8,6 @@ import json
 class Config:
     def __init__(self):
         current = pathlib.Path(__file__).parent.resolve()
-        self.background = current.joinpath("Images", "home.png")
 
         with open(current.joinpath("config.json")) as data_file:
             data = json.load(data_file)
@@ -44,7 +43,6 @@ class CameraWidget(QWidget):
 
     def __init__(self, frame=None, parent=None):
         super().__init__(parent)
-
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
         layout = QVBoxLayout()
@@ -63,7 +61,7 @@ class CameraWidget(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Q:
-            self.close()
+            self.closed.emit()
             
 def seats_coordinates(data, frame_shape):
     h, w, d = frame_shape

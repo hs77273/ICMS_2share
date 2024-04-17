@@ -1,7 +1,7 @@
 import cv2
 from helper import *
 import numpy as np
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 import torch
 from pathlib import Path
 
@@ -26,7 +26,13 @@ class GunDetection:
         guns = gun_cascade.detectMultiScale(frame_gray, scaleFactor=1.3, minNeighbors=20, minSize=(100, 100))
 
         if len(guns) > 0:
-            return 'pistol'
+            total_area = frame_gray.shape[0] * frame_gray.shape[1]
+            max_area = max([(w * h) for (x, y, w, h) in guns])
+            confidence = max_area / total_area
+            if confidence > 0.05:
+                return 'pistol'
+            else:
+                return 'No pistol'
         else:
             return 'No pistol'
 
@@ -136,62 +142,3 @@ class BehaviourDetection:
         smoothed_class = max(set(history['classes']), key=history['classes'].count)
         smoothed_confidence = np.mean(history['confidences'])
         return smoothed_class, smoothed_confidence
-    
-class SeatObjects:
-    def __init__(self):
-        self.seat_coordinate = CONFIG.seat_coordinates
-        self.smoothing_window_size = 15
-        self.seat_obj_history = {}
-        self.gun_detector = GunDetection()
-
-    def process_objects(self, seatframe):
-        results = obj_model(seatframe)
-
-        detected_classes = set()
-        for obj in results.xyxy[0]:
-            class_id = int(obj[5])
-            class_name = obj_model.names[class_id]
-            if class_name not in OBJECT.filter:
-                detected_classes.add(class_name)
-            gun = self.gun_detector.process_gun_detection(seatframe)
-            if gun == 'pistol':
-                detected_classes.add(gun)
-
-        detected_classes_list = list(detected_classes)
-        return detected_classes_list
-
-    def process_seatobjects(self, frame):
-        seat_obj_dict = {}
-        for x1, y1, x2, y2, seat_name in self.seat_coordinate:
-            try:
-                seat = frame[y2:y1, x1:x2]
-                class_names = self.process_objects(seat)
-                self.update_history(seat_name, class_names)
-                smoothed_class_names = self.smooth_detection(seat_name)
-                seat_obj_dict[seat_name] = smoothed_class_names
-            except Exception as e:
-                print(e)
-                
-        return seat_obj_dict
-
-    def update_history(self, seat_name, class_names):
-        if seat_name not in self.seat_obj_history:
-            self.seat_obj_history[seat_name] = []
-
-        history = self.seat_obj_history[seat_name]
-        history.append(class_names)
-
-        if len(history) > self.smoothing_window_size:
-            history.pop(0)
-
-    def smooth_detection(self, seat_name):
-        history = self.seat_obj_history.get(seat_name, [])
-        if not history:
-            return []
-
-        smoothed_classes = []
-        for class_names in history:
-            smoothed_classes.extend(class_names)
-
-        unique_classes = set(smoothed_classes)
-        return list(unique_classes)
